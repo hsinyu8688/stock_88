@@ -2,33 +2,34 @@ name: Stock Dashboard Auto Update
 
 on:
   schedule:
-    # 台灣時間週一至週五 16:30 執行 (UTC 08:30)
     - cron: '30 8 * * 1-5'
-  workflow_dispatch: # 讓你現在就能點擊測試
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: 檢出程式碼
+        uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: 設定 Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.10'
 
-      - name: Install dependencies
+      - name: 安裝套件
         run: |
-          pip install FinMind pandas tabulate
+          pip install FinMind pandas tabulate tqdm
 
-      - name: Run Market Scan
+      - name: 執行選股掃描
         run: python daily_scan.py
 
-      - name: Commit and Push
+      - name: 更新儀表板
         run: |
           git config --global user.name "GitHub Action Bot"
           git config --global user.email "actions@github.com"
           git add README.md
-          git commit -m "Auto update dashboard: $(date +'%Y-%m-%d')" || exit 0
-          git push
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto update: $(date +'%Y-%m-%d')" && git push)
