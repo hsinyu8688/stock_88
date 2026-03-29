@@ -2,38 +2,80 @@ import datetime
 import pandas as pd
 from FinMind.data import DataLoader
 
-def run_smart_scan():
-    # 1. 初始化
+def get_latest_workday():
+    """自動取得最近一個有數據的交易日"""
+    now = datetime.datetime.now()
+    # 如果是週六(5)，回溯到週五；如果是週日(6)，回溯到週五
+    if now.weekday() == 5:
+        target = now - datetime.timedelta(days=1)
+    elif now.weekday() == 6:
+        target = now - datetime.timedelta(days=2)
+    else:
+        target = now
+    return target.strftime('%Y-%m-%d')
+
+def run_pro_scan():
     dl = DataLoader()
     now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
+    # 關鍵：自動判定數據日期
+    trade_date = get_latest_workday()
+    # 為了投信連買，抓取過去 30 天的資料確保涵蓋範圍
+    start_date = (datetime.datetime.strptime(trade_date, '%Y-%m-%d') - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
+
     try:
-        # 2. 抓取最基礎的台股清單 (不含財務指標，確保不報錯)
-        df = dl.taiwan_stock_info()
+        # 1. 抓取核心數據
+        df_inst = dl.taiwan_stock_institutional_investors(start_date=start_date, end_date=trade_date)
+        df_daily = dl.taiwan_stock_daily_last()
+        df_dividend = dl.taiwan_stock_dividend_result()
+        df_info = dl.taiwan_stock_info()
 
-        # 3. 準備寫入內容
-        content = f"# 📈 台股自動化投資儀表板\n\n"
-        content += f"> ✨ 系統強制更新秒數: `{now_str}`\n\n"
+        content = f"# 📈 Sharon 的雲端選股儀表板\n\n"
+        content += f"> 🕒 系統執行時間: `{now_str}`\n"
+        content += f"> 📅 數據基準日: `{trade_date}` (已自動跳過週末)\n\n"
+
+        # --- 區塊 A：投信連買 (動能區) ---
+        sitc_df = df_inst[df_inst['name'] == 'Investment_Trust'].sort_values(['stock_id', 'date'], ascending=[True, False])
+        active_stocks = df_daily[df_daily['trading_volume'] > 1000]['stock_id'].tolist()
         
-        # 檢查資料是否真的存在
-        if isinstance(df, pd.DataFrame) and not df.empty:
-            # 只顯示前 15 檔，確保 README 乾淨
-            display_df = df.head(15)[['stock_id', 'stock_name', 'industry_category']]
-            content += "## 📋 台股基本資訊清單 (連線測試成功)\n\n"
-            content += display_df.to_markdown(index=False)
-            content += "\n\n--- \n💡 **Sharon，這代表你的自動化通道已經完全打通了！** \n由於今天是週末，部分財務數據 API 可能在維護中。週一開盤後，我們只要把這段代碼換回「高殖利率」邏輯，數據就會自動長出來了。"
-        else:
-            content += "⚠️ API 目前回傳格式不符或空值，這在週末數據維護期很常見。"
+        momentum_list = []
+        for stock_id, group in sitc_df.groupby('stock_id'):
+            if stock_id not in active_stocks: continue
+            buys = group['buy'].values
+            count = 0
+            for b in buys:
+                if b > 0: count += 1
+                else: break
+            if count >= 3: # 週末放寬一點到 3 天，確保有標的可以觀察
+                ind = df_info[df_info['stock_id'] == stock_id]['industry_category'].values[0] if stock_id in df_info['stock_id'].values else "其他"
+                momentum_list.append({"代號": stock_id, "產業": ind, "連買天數": count, "最後買超": int(buys[0])})
 
-        # 4. 寫入檔案
+        content += "## 🔥 投信連續買超 (Momentum)\n"
+        if momentum_list:
+            content += pd.DataFrame(momentum_list).to_markdown(index=False) + "\n\n"
+        else:
+            content += "📭 目前市場動能較弱，暫無符合連買標的。\n\n"
+
+        # --- 區塊 B：高殖利率前 50 名 (價值區) ---
+        latest_div = df_dividend.sort_values('date').groupby('stock_id').last()
+        df_yield = pd.merge(df_daily[['stock_id', 'close']], latest_div[['stock_id', 'cash_dividend_caption']], on='stock_id')
+        df_yield['yield_pct'] = (df_yield['cash_dividend_caption'].astype(float) / df_yield['close']) * 100
+        yield_top_50 = df_yield.sort_values('yield_pct', ascending=False).head(50)
+
+        content += "## 💰 高殖利率精選前 50 名 (Value)\n"
+        content += "| 代號 | 現價 | 股利 | 殖利率 (%) |\n| :--- | :--- | :--- | :--- |\n"
+        for _, row in yield_top_50.iterrows():
+            content += f"| {row['stock_id']} | {row['close']} | {row['cash_dividend_caption']} | **{row['yield_pct']:.2f}%** |\n"
+
+        # 3. 寫入 README
         with open("README.md", "w", encoding="utf-8") as f:
             f.write(content)
-            
+        print(f"✅ 週末不打烊版更新成功！數據基準日: {trade_date}")
+
     except Exception as e:
-        # 萬一還是出錯，把詳細錯誤寫下來
-        error_info = f"# ❌ 執行錯誤報告\n\n時間: `{now_str}`\n\n錯誤詳細資訊: `{str(e)}`"
+        error_msg = f"# ❌ 數據更新異常\n\n> 執行時間: `{now_str}`\n\n錯誤訊息: `{str(e)}`"
         with open("README.md", "w", encoding="utf-8") as f:
-            f.write(error_info)
+            f.write(error_msg)
 
 if __name__ == "__main__":
-    run_smart_scan()
+    run_pro_scan()
