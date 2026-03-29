@@ -1,5 +1,7 @@
-# ⚠️ 系統維護中
+# ⚠️ Goodinfo 存取異常
 
-> 時間: `2026-03-29 09:04:03`
+> 執行時間: `2026-03-29 09:19:12`
 
-目前 API 週末暫時離線。週一 16:30 數據就會自動長出來！
+錯誤訊息: `Missing optional dependency 'html5lib'.  Use pip or conda to install html5lib.` 
+
+**這代表 Goodinfo 擋住了 GitHub 的自動化抓取。建議等週一開盤再試，或是考慮我們之前的 Yahoo Finance 備援方案。**
