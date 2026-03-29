@@ -2,13 +2,17 @@ name: Stock Dashboard Auto Update
 
 on:
   schedule:
-    # 這裡設定的是 UTC 時間 08:30，換算成台灣時間是 16:30 (收盤後資料最齊)
+    # 台灣時間週一至週五 16:30 自動執行
     - cron: '30 8 * * 1-5'
-  workflow_dispatch: # 讓妳可以隨時手動按下 "Run workflow" 測試
+  workflow_dispatch: # 讓妳可以隨時點擊按鈕手動測試
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    # 這裡很關鍵：必須確保 Workflow 有寫入權限 (Settings 也要改喔！)
+    permissions:
+      contents: write
 
     steps:
       - name: 檢查倉庫代碼
@@ -19,15 +23,15 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: 安裝套件
+      - name: 安裝所有必要零件
         run: |
-          pip install pandas requests beautifulsoup4 lxml tabulate FinMind yfinance
-          # 備註：lxml 是解析 Goodinfo 表格的關鍵引擎
+          pip install pandas requests beautifulsoup4 lxml html5lib tabulate FinMind yfinance
+          # 備註：html5lib 和 lxml 是解析 Goodinfo 複雜網頁表格的關鍵引擎
 
       - name: 執行選股掃描
         run: python daily_scan.py
 
-      - name: 更新儀表板
+      - name: 更新儀表板至首頁
         run: |
           git config --global user.name "GitHub Action Bot"
           git config --global user.email "actions@github.com"
@@ -37,5 +41,5 @@ jobs:
             git commit -m "Auto update: $(date +'%Y-%m-%d %H:%M')"
             git push
           else
-            echo "內容無變動，跳過推送。"
+            echo "內容完全相同，跳過推送。"
           fi
