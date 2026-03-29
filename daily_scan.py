@@ -1,54 +1,71 @@
 import datetime
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
+import yfinance as yf
+from FinMind.data import DataLoader
+from tqdm import tqdm
 
-def run_goodinfo_scan():
+def run_yahoo_scan():
+    dl = DataLoader()
     now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
-    # 這是妳提供的 Goodinfo 投信 5 日買超排行網址
-    url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E6%8A%95%E4%BF%A1%E7%B4%AF%E8%A8%88%E8%B2%B7%E8%B6%85%E5%BC%B5%E6%95%B8+%E2%80%93+5%E6%97%A5%40%40%E6%8A%95%E4%BF%A1%E7%B4%AF%E8%A8%88%E8%B2%B7%E8%B6%85%40%40%E6%8A%95%E4%BF%A1%E8%B2%B7%E8%B6%85%E5%BC%B5%E6%95%B8+%E2%80%93+5%E6%97%A5"
-    
-    # 必須偽裝成真人瀏覽器，否則會被拒絕訪問
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36'
-    }
-
     try:
-        res = requests.get(url, headers=headers)
-        res.encoding = 'utf-8'
+        # 1. 抓取 FinMind 的股利與股票資訊 (這部分週末通常穩定)
+        df_div = dl.taiwan_stock_dividend_result()
+        df_info = dl.taiwan_stock_info()
         
-        # 使用 pandas 直接解析網頁中的所有表格
-        dfs = pd.read_html(res.text)
-        
-        # 通常 Goodinfo 的主要數據表在第 15~18 個表格之間，我們搜尋含有「代號」字眼的表
-        target_df = None
-        for df in dfs:
-            if '代號' in df.columns.get_level_values(0) or '代號' in df.columns:
-                target_df = df
-                break
-        
-        content = f"# 📈 Sharon 的 Goodinfo 籌碼儀表板\n\n"
+        content = f"# 📈 Sharon 的 Yahoo Finance 投資儀表板\n\n"
         content += f"> 🕒 執行時間: `{now_str}`\n"
-        content += f"> 🎯 數據來源: [Goodinfo! 投信 5 日累計買超排行]({url})\n\n"
+        content += f"> 📅 數據來源: `Yahoo Finance (週末不打烊)`\n\n"
 
-        if target_df is not None:
-            # 清理表格 (Goodinfo 表頭通常是多層級，我們要簡化它)
-            # 取前 25 名，並過濾掉重複的表頭行
-            display_df = target_df.head(25)
+        if not df_div.empty:
+            # 取得最新的股利政策
+            latest_div = df_div.sort_values('date').groupby('stock_id').last().reset_index()
+            # 挑選股利前 60 名來抓價格 (避免 API 請求過多)
+            top_div = latest_div.sort_values('cash_dividend_caption', ascending=False).head(60)
             
-            content += "## 🔥 投信 5 日累計買超熱門排行\n"
-            content += display_df.to_markdown(index=False)
-            content += "\n\n✅ **成功對接 Goodinfo 數據！** 這是目前內資認同度最高的標的。"
+            results = []
+            print("正在連線 Yahoo Finance 獲取票價...")
+            
+            for _, row in tqdm(top_div.iterrows(), total=len(top_div)):
+                stock_id = row['stock_id']
+                yf_id = f"{stock_id}.TW"
+                
+                try:
+                    ticker = yf.Ticker(yf_id)
+                    # 抓取最後一筆成交價
+                    price = ticker.fast_info['last_price']
+                    div = float(row['cash_dividend_caption'])
+                    
+                    if price and price > 0:
+                        yield_pct = (div / price) * 100
+                        name = df_info[df_info['stock_id'] == stock_id]['stock_name'].values[0] if stock_id in df_info['stock_id'].values else "未知"
+                        
+                        results.append({
+                            "股票代號": stock_id,
+                            "名稱": name,
+                            "目前票價": round(price, 2),
+                            "現金股利": div,
+                            "殖利率 (%)": round(yield_pct, 2)
+                        })
+                except:
+                    continue
+            
+            # 整理並排序
+            final_df = pd.DataFrame(results).sort_values("殖利率 (%)", ascending=False).head(50)
+            
+            content += "## 💰 高殖利率精選前 50 名 (即時票價計算)\n"
+            content += final_df.to_markdown(index=False)
+            content += "\n\n--- \n✅ **成功對接 Yahoo Finance！** 週末也能看到最新的票價與分析。"
         else:
-            content += "⚠️ 抓到了網頁但找不到數據表，可能是 Goodinfo 改版或封鎖了 IP。"
+            content += "⚠️ 無法取得股利數據，請檢查 FinMind API 狀態。"
 
         with open("README.md", "w", encoding="utf-8") as f:
             f.write(content)
+        print("✅ 儀表板更新成功！")
             
     except Exception as e:
         with open("README.md", "w", encoding="utf-8") as f:
-            f.write(f"# ⚠️ Goodinfo 存取異常\n\n> 執行時間: `{now_str}`\n\n錯誤訊息: `{str(e)}` \n\n**這代表 Goodinfo 擋住了 GitHub 的自動化抓取。建議等週一開盤再試，或是考慮我們之前的 Yahoo Finance 備援方案。**")
+            f.write(f"# ⚠️ 系統維護中\n\n> 執行時間: `{now_str}`\n\n錯誤訊息: `{str(e)}` \n\n**這代表 Yahoo Finance 暫時無法連線。請稍後再試。**")
 
 if __name__ == "__main__":
-    run_goodinfo_scan()
+    run_yahoo_scan()
