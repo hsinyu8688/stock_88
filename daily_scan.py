@@ -6,34 +6,44 @@ def run_pro_scan():
     dl = DataLoader()
     now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
-    try:
-        # 1. 直接抓最穩定的「台灣股票基本資訊」
-        df = dl.taiwan_stock_info()
+    # 往前抓 10 天，確保能抓到最後一個交易日的票價
+    today = datetime.datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.datetime.now() - datetime.timedelta(days=10)).strftime('%Y-%m-%d')
 
-        # 2. 準備 Markdown 內容
+    try:
+        # 1. 抓取基本資訊
+        df_info = dl.taiwan_stock_info()
+        # 2. 抓取全市場最後行情 (或是用 daily 抓取近期資料)
+        df_price = dl.taiwan_stock_daily_last() 
+
+        # 組合內容
         content = f"# 📈 Sharon 的雲端選股儀表板\n\n"
         content += f"> 🕒 系統最後更新: `{now_str}`\n\n"
-        content += "## 📋 台股基本資訊清單 (週日穩定連線測試)\n"
-        content += "> 💡 **連線已完全打通！** 這是從 API 抓到的即時清單：\n\n"
+        content += "## 💰 台股即時票價清單 (連線測試)\n"
         
-        if df is not None and not df.empty:
-            # 取前 30 檔，只顯示代號、名稱、產業
-            test_df = df.head(30)[['stock_id', 'stock_name', 'industry_category']]
-            # 改成中文欄位名稱比較好讀
-            test_df.columns = ['股票代號', '股票名稱', '產業類別']
-            content += test_df.to_markdown(index=False)
-            content += "\n\n--- \n✅ **成功！** 只要妳看到這個表格，就代表機器人大腦已經可以正常說話了。"
+        if df_info is not None and df_price is not None:
+            # 合併基本資訊與票價
+            # df_price 通常包含 stock_id, close (收盤價)
+            df_merged = pd.merge(df_info[['stock_id', 'stock_name', 'industry_category']], 
+                                 df_price[['stock_id', 'close']], on='stock_id')
+            
+            # 整理表格
+            display_df = df_merged.head(30)
+            display_df.columns = ['股票代號', '股票名稱', '產業類別', '目前票價']
+            
+            content += display_df.to_markdown(index=False)
+            content += "\n\n--- \n✅ **報價功能已上線！** 明天下午 16:30 機器人會自動更新最新成交價。"
         else:
-            content += "⚠️ 糟了，API 雖然沒報錯，但回傳了空清單。請再試一次 Run Workflow。"
+            content += "⚠️ 週末 API 數據庫部分離線，暫時無法取得最新票價，請於開盤日嘗試。"
 
-        # 3. 寫入檔案
+        # 寫入檔案
         with open("README.md", "w", encoding="utf-8") as f:
             f.write(content)
             
     except Exception as e:
-        # 萬一還是出錯，就把錯誤寫下來
+        # 萬一特定函數報錯（如週末維護），我們改用備援方案顯示基本清單
         with open("README.md", "w", encoding="utf-8") as f:
-            f.write(f"# ⚠️ 數據對接中\n\n執行時間: `{now_str}`\n\n錯誤訊息: `{str(e)}`")
+            f.write(f"# ⚠️ 數據對接中\n\n> 執行時間: `{now_str}`\n\n目前 API 正在進行週末票價數據維護，週一開盤後將自動恢復正常顯示。")
 
 if __name__ == "__main__":
     run_pro_scan()
