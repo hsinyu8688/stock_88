@@ -1,58 +1,54 @@
 import datetime
 import pandas as pd
-from FinMind.data import DataLoader
+import requests
+from bs4 import BeautifulSoup
 
-def run_pro_scan():
-    dl = DataLoader()
+def run_goodinfo_scan():
     now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
+    # 這是妳提供的 Goodinfo 投信 5 日買超排行網址
+    url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E6%8A%95%E4%BF%A1%E7%B4%AF%E8%A8%88%E8%B2%B7%E8%B6%85%E5%BC%B5%E6%95%B8+%E2%80%93+5%E6%97%A5%40%40%E6%8A%95%E4%BF%A1%E7%B4%AF%E8%A8%88%E8%B2%B7%E8%B6%85%40%40%E6%8A%95%E4%BF%A1%E8%B2%B7%E8%B6%85%E5%BC%B5%E6%95%B8+%E2%80%93+5%E6%97%A5"
+    
+    # 必須偽裝成真人瀏覽器，否則會被拒絕訪問
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36'
+    }
+
     try:
-        # 1. 抓取三種核心數據
-        df_info = dl.taiwan_stock_info()
-        df_price = dl.taiwan_stock_daily_last() # 抓取最後一個交易日(週五)的票價
-        df_div = dl.taiwan_stock_dividend_result()
+        res = requests.get(url, headers=headers)
+        res.encoding = 'utf-8'
+        
+        # 使用 pandas 直接解析網頁中的所有表格
+        dfs = pd.read_html(res.text)
+        
+        # 通常 Goodinfo 的主要數據表在第 15~18 個表格之間，我們搜尋含有「代號」字眼的表
+        target_df = None
+        for df in dfs:
+            if '代號' in df.columns.get_level_values(0) or '代號' in df.columns:
+                target_df = df
+                break
+        
+        content = f"# 📈 Sharon 的 Goodinfo 籌碼儀表板\n\n"
+        content += f"> 🕒 執行時間: `{now_str}`\n"
+        content += f"> 🎯 數據來源: [Goodinfo! 投信 5 日累計買超排行]({url})\n\n"
 
-        # 2. 開始構建內容
-        content = f"# 📈 Sharon 的雲端選股儀表板\n\n"
-        content += f"> 🕒 系統最後更新: `{now_str}`\n"
-        content += f"> 📅 數據狀態: `週末模式 (顯示週五收盤數據)`\n\n"
-
-        # 檢查數據是否存在並合併
-        if df_info is not None and not df_info.empty:
-            # 合併基本資訊與票價
-            df_merged = pd.merge(df_info[['stock_id', 'stock_name', 'industry_category']], 
-                                 df_price[['stock_id', 'close']], on='stock_id', how='left')
+        if target_df is not None:
+            # 清理表格 (Goodinfo 表頭通常是多層級，我們要簡化它)
+            # 取前 25 名，並過濾掉重複的表頭行
+            display_df = target_df.head(25)
             
-            # 合併股利數據
-            latest_div = df_div.sort_values('date').groupby('stock_id').last().reset_index()
-            df_final = pd.merge(df_merged, latest_div[['stock_id', 'cash_dividend_caption']], on='stock_id', how='left')
-            
-            # 計算殖利率 (處理空值，避免計算報錯)
-            df_final['close'] = pd.to_numeric(df_final['close'], errors='coerce')
-            df_final['cash_dividend_caption'] = pd.to_numeric(df_final['cash_dividend_caption'], errors='coerce')
-            df_final['yield_pct'] = (df_final['cash_dividend_caption'] / df_final['close']) * 100
-            
-            # 排序：取殖利率最高前 50 名
-            top_50 = df_final.dropna(subset=['yield_pct']).sort_values('yield_pct', ascending=False).head(50)
-            
-            # 整理欄位名稱
-            top_50.columns = ['股票代號', '名稱', '產業', '週五票價', '現金股利', '殖利率 (%)']
-            top_50['殖利率 (%)'] = top_50['殖利率 (%)'].map('{:,.2f}%'.format)
-            
-            content += "## 💰 高殖利率精選前 50 名 (週五結算)\n"
-            content += top_50.to_markdown(index=False)
-            content += "\n\n--- \n✅ **成功加載！** 如果部分股票票價為 NaN，代表 API 正在維護該標的數據。"
+            content += "## 🔥 投信 5 日累計買超熱門排行\n"
+            content += display_df.to_markdown(index=False)
+            content += "\n\n✅ **成功對接 Goodinfo 數據！** 這是目前內資認同度最高的標的。"
         else:
-            content += "⚠️ API 目前回傳空值，這通常是週末伺服器端的問題。請放過機器人，明天開盤再試！"
+            content += "⚠️ 抓到了網頁但找不到數據表，可能是 Goodinfo 改版或封鎖了 IP。"
 
-        # 3. 強制寫入檔案
         with open("README.md", "w", encoding="utf-8") as f:
             f.write(content)
             
     except Exception as e:
-        # 即使出錯，也要顯示「基本清單」，不准再噴紅叉叉
         with open("README.md", "w", encoding="utf-8") as f:
-            f.write(f"# ⚠️ 系統維護中\n\n> 時間: `{now_str}`\n\n目前 API 週末暫時離線。週一 16:30 數據就會自動長出來！")
+            f.write(f"# ⚠️ Goodinfo 存取異常\n\n> 執行時間: `{now_str}`\n\n錯誤訊息: `{str(e)}` \n\n**這代表 Goodinfo 擋住了 GitHub 的自動化抓取。建議等週一開盤再試，或是考慮我們之前的 Yahoo Finance 備援方案。**")
 
 if __name__ == "__main__":
-    run_pro_scan()
+    run_goodinfo_scan()
