@@ -20,9 +20,10 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: 安裝套件
+      - name: 安裝所有必要零件
         run: |
-          pip install pandas yfinance FinMind tabulate lxml
+          pip install pandas yfinance FinMind tabulate lxml tqdm
+          # tqdm 是 FinMind 執行必備的進度條工具
 
       - name: 執行選股掃描
         run: python daily_scan.py
