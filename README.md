@@ -1,6 +1,6 @@
 # 📈 Sharon 的週末不打烊儀表板
 
-> 🕒 執行時間: `2026-06-18 12:02:33`
+> 🕒 執行時間: `2026-06-19 12:32:26`
 > 📅 數據基準: `週五收盤 (Yahoo Finance 直連)`
 
 ## 💰 熱門股殖利率監控 (週末即時版)
@@ -20,6 +20,6 @@
 |   2002 | CHINA STEEL CORP                |         19.1 |       0.15 |         0.79 |
 |   2308 | DELTA ELECTRONIC                |       2150   |      11.6  |         0.54 |
 |   2330 | TAIWAN SEMICONDUCTOR MANUFACTUR |       2410   |       0    |         0    |
-|   6669 | WIWYNN CORPORATION              |       5130   |       0    |         0    |
+|   6669 | WIWYNN CORPORATION              |       1710   |       0    |         0    |
 
 ✅ **Yahoo 數據連線成功！** 週末也能看到最新分析。
